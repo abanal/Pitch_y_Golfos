@@ -1,0 +1,8 @@
+
+{
+  "name": "Lliguilla Pitch & Golfos",
+  "description": "A professional golf tournament management app featuring rankings, match history, and live scoring tracking.",
+  "requestFramePermissions": [
+    "camera"
+  ]
+}
