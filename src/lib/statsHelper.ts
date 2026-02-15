@@ -206,12 +206,28 @@ export const calculateMatchPoints = (match: Partial<Match>): Record<string, numb
             const tId = idx.toString();
             const storedStats = match.team_stats?.[tId];
 
+            const strokesByMember = members.map(name => ({ name, s: strokes[name] }));
             const teamScore = storedStats
                 ? storedStats.strokes
                 : members.reduce((acc, name) => acc + (strokes[name] || 0), 0);
 
+            if (process.env.NODE_ENV === 'development') {
+                console.log("TEAM DEBUG", {
+                    id: tId,
+                    members,
+                    strokesByMember,
+                    teamScore,
+                    type: typeof teamScore,
+                    isNaN: isNaN(teamScore)
+                });
+            }
+
             return { id: tId, members, teamScore, size: members.length, storedStats };
         });
+
+        if (process.env.NODE_ENV === 'development') {
+            console.log("BEFORE RANKING (teamStats):", teamStats.map(t => ({ id: t.id, score: t.teamScore })));
+        }
 
         // 2. Competition Ranking NOMÉS per teamScore
         const teamRanks = computeCompetitionRank(
@@ -219,6 +235,11 @@ export const calculateMatchPoints = (match: Partial<Match>): Record<string, numb
             (a, b) => a.teamScore - b.teamScore,
             (t) => t.id
         );
+
+        if (process.env.NODE_ENV === 'development') {
+            console.log("AFTER RANKING (teamRanks):", teamRanks);
+        }
+
 
         console.log(`--- CALCANT PUNTS EQUIPS (N=${N}, Competition Rank) ---`);
         teamStats.forEach(team => {

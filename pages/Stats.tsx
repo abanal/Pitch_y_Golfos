@@ -75,7 +75,7 @@ const Stats: React.FC<StatsProps> = ({ players, matches }) => {
     });
 
     // 3. Mapeig final
-    return players.map(player => {
+    const result = players.map(player => {
       const s = summary[player.name];
       return {
         jugador: player.name,
@@ -89,8 +89,21 @@ const Stats: React.FC<StatsProps> = ({ players, matches }) => {
         birdies_total: s.birdies,
         hio_total: s.hio
       };
-    }).sort((a, b) => b.punts - a.punts);
+    });
+
+    if (process.env.NODE_ENV === 'development') {
+      console.log("STATS BEFORE SORT:", result.map(p => ({ n: p.jugador, pts: p.punts })));
+    }
+
+    const sorted = result.sort((a, b) => b.punts - a.punts);
+
+    if (process.env.NODE_ENV === 'development') {
+      console.log("STATS AFTER SORT:", sorted.map(p => ({ n: p.jugador, pts: p.punts })));
+    }
+
+    return sorted;
   };
+
 
 
   const statsData = calculateStats();

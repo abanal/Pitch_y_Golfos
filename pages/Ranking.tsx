@@ -36,7 +36,7 @@ const Ranking: React.FC<RankingProps> = ({ players, matches, onNewMatch, onSelec
       }
     }
 
-    return players.map(player => {
+    const result = players.map(player => {
       const gCount = games[player.name] ?? 0;
       const sSum = strokes[player.name] ?? 0;
       const pSum = pars[player.name] ?? 0;
@@ -47,7 +47,20 @@ const Ranking: React.FC<RankingProps> = ({ players, matches, onNewMatch, onSelec
         matchesPlayed: gCount,
         sobrePar: gCount > 0 ? (sSum - pSum) / gCount : null
       };
-    }).sort((a, b) => (b.points || 0) - (a.points || 0));
+    });
+
+    if (process.env.NODE_ENV === 'development') {
+      console.log("RANKING BEFORE SORT (players):", result.map(p => ({ name: p.name, pts: p.points })));
+    }
+
+    const sorted = result.sort((a, b) => (b.points || 0) - (a.points || 0));
+
+    if (process.env.NODE_ENV === 'development') {
+      console.log("RANKING AFTER SORT (players):", sorted.map(p => ({ name: p.name, pts: p.points })));
+    }
+
+    return sorted;
+
   }, [players, matches]);
 
   // SINGLE MATCH AUDIT (DEBUG)
