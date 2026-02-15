@@ -1,5 +1,5 @@
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { Player } from '../types';
 
 interface NewMatchProps {
@@ -42,10 +42,45 @@ const NewMatch: React.FC<NewMatchProps> = ({ players, onBack, onStart }) => {
 
   const [teams, setTeams] = useState<string[][]>([]);
   const [showTeamsPreview, setShowTeamsPreview] = useState(false);
+  const [teamSelectionMode, setTeamSelectionMode] = useState<'RANDOM' | 'MANUAL'>('RANDOM');
+  const [manualTeams, setManualTeams] = useState<string[][]>([]);
 
   useEffect(() => {
     localStorage.setItem('golf_courses', JSON.stringify(availableCourses));
   }, [availableCourses]);
+
+  useEffect(() => {
+    if (mode === 'Equips' && teamSelectionMode === 'MANUAL') {
+      const numPlayers = selectedPlayers.length;
+      if (numPlayers < 2) {
+        setManualTeams([]);
+        return;
+      }
+      const structure: string[][] = [];
+      for (let i = 0; i < numPlayers; i += 2) {
+        if (i + 1 < numPlayers) {
+          structure.push(['', '']);
+        } else {
+          if (structure.length > 0) {
+            structure[structure.length - 1].push('');
+          } else {
+            structure.push(['']);
+          }
+        }
+      }
+      setManualTeams(prev => {
+        if (prev.flat().length !== structure.flat().length) return structure;
+        return prev.map(team => team.map(pid => selectedPlayers.includes(pid) ? pid : ''));
+      });
+    }
+  }, [selectedPlayers.length, mode, teamSelectionMode]);
+
+  const isManualTeamsValid = useMemo(() => {
+    if (mode !== 'Equips' || teamSelectionMode === 'RANDOM') return true;
+    const flat = manualTeams.flat().filter(id => id !== '');
+    const unique = new Set(flat);
+    return flat.length === selectedPlayers.length && unique.size === flat.length;
+  }, [mode, teamSelectionMode, manualTeams, selectedPlayers.length]);
 
   const getInitials = (name: string) => {
     return name.split(' ').map(n => n[0]).join('').toUpperCase().slice(0, 2);
@@ -96,22 +131,28 @@ const NewMatch: React.FC<NewMatchProps> = ({ players, onBack, onStart }) => {
       return;
     }
 
-    const shuffled = [...selectedPlayers].sort(() => Math.random() - 0.5);
-    const newTeams: string[][] = [];
+    if (teamSelectionMode === 'RANDOM') {
+      const shuffled = [...selectedPlayers].sort(() => Math.random() - 0.5);
+      const newTeams: string[][] = [];
 
-    for (let i = 0; i < shuffled.length; i += 2) {
-      if (i + 1 < shuffled.length) {
-        newTeams.push([shuffled[i], shuffled[i + 1]]);
-      } else {
-        if (newTeams.length > 0) {
-          newTeams[newTeams.length - 1].push(shuffled[i]);
+      for (let i = 0; i < shuffled.length; i += 2) {
+        if (i + 1 < shuffled.length) {
+          newTeams.push([shuffled[i], shuffled[i + 1]]);
         } else {
-          newTeams.push([shuffled[i]]);
+          if (newTeams.length > 0) {
+            newTeams[newTeams.length - 1].push(shuffled[i]);
+          } else {
+            newTeams.push([shuffled[i]]);
+          }
         }
       }
+      setTeams(newTeams);
+      setShowTeamsPreview(true);
+    } else {
+      if (isManualTeamsValid) {
+        handleFinalStart(manualTeams);
+      }
     }
-    setTeams(newTeams);
-    setShowTeamsPreview(true);
   };
 
   const handleFinalStart = (finalTeams: string[][]) => {
@@ -214,6 +255,16 @@ const NewMatch: React.FC<NewMatchProps> = ({ players, onBack, onStart }) => {
                   <button onClick={() => setMatchType('Amistós')} className={`flex-1 py-2 rounded-md text-[10px] font-black uppercase transition-all ${matchType === 'Amistós' ? 'bg-slate-700 text-slate-300 shadow-lg' : 'text-slate-400'}`}>Amistós</button>
                 </div>
               </div>
+
+              {mode === 'Equips' && (
+                <div className="pt-4 space-y-3 border-t border-primary/5 mt-4">
+                  <label className="text-[10px] uppercase tracking-widest text-primary/60 font-bold">Generació d'Equips</label>
+                  <div className="flex p-1 bg-background-dark/60 rounded-lg border border-primary/5">
+                    <button onClick={() => setTeamSelectionMode('RANDOM')} className={`flex-1 py-2 rounded-md text-[10px] font-black uppercase transition-all ${teamSelectionMode === 'RANDOM' ? 'bg-primary text-background-dark shadow-lg' : 'text-slate-400'}`}>Sorteig (Auto)</button>
+                    <button onClick={() => setTeamSelectionMode('MANUAL')} className={`flex-1 py-2 rounded-md text-[10px] font-black uppercase transition-all ${teamSelectionMode === 'MANUAL' ? 'bg-primary text-background-dark shadow-lg' : 'text-slate-400'}`}>Manual</button>
+                  </div>
+                </div>
+              )}
             </div>
           </section>
 
@@ -235,6 +286,66 @@ const NewMatch: React.FC<NewMatchProps> = ({ players, onBack, onStart }) => {
               ))}
             </div>
           </section>
+
+          {mode === 'Equips' && teamSelectionMode === 'MANUAL' && (
+            <section className="space-y-4 animate-in fade-in duration-300">
+              <div className="flex items-center justify-between">
+                <h2 className="text-lg font-bold">Configuració Equips</h2>
+                <button
+                  onClick={() => {
+                    const filledIds = manualTeams[0].filter(id => id !== '');
+                    const remaining = selectedPlayers.filter(pid => !filledIds.includes(pid));
+                    if (manualTeams.length > 1) {
+                      const newTeams = [...manualTeams];
+                      const slotsToFill = newTeams[1].length;
+                      newTeams[1] = [...remaining.slice(0, slotsToFill)];
+                      setManualTeams(newTeams);
+                    }
+                  }}
+                  className="text-primary text-[10px] font-black uppercase tracking-widest"
+                >
+                  Auto-omplir Team 2
+                </button>
+              </div>
+              <div className="grid grid-cols-1 gap-3">
+                {manualTeams.map((team, tIdx) => (
+                  <div key={tIdx} className="bg-neutral-dark/40 border border-primary/10 p-5 rounded-2xl space-y-4">
+                    <span className="text-[10px] font-black text-primary/40 uppercase tracking-[0.2em]">EQUIP {tIdx + 1}</span>
+                    <div className="grid grid-cols-2 gap-3">
+                      {team.map((playerSlot, pIdx) => (
+                        <div key={pIdx} className="relative">
+                          <select
+                            value={playerSlot}
+                            onChange={(e) => {
+                              const newTeams = [...manualTeams];
+                              newTeams[tIdx][pIdx] = e.target.value;
+                              setManualTeams(newTeams);
+                            }}
+                            className="w-full bg-background-dark border-2 border-primary/10 rounded-xl px-3 py-3 text-xs font-bold text-white focus:outline-none focus:border-primary/40 appearance-none"
+                          >
+                            <option value="">Triar...</option>
+                            {selectedPlayers.map(pid => {
+                              const p = players.find(player => player.id === pid);
+                              return <option key={pid} value={pid}>{p?.name}</option>;
+                            })}
+                          </select>
+                          <div className="absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none text-primary/40">
+                            <span className="material-icons-round text-sm">expand_more</span>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                ))}
+              </div>
+              {!isManualTeamsValid && selectedPlayers.length >= 2 && (
+                <div className="flex items-center gap-2 p-3 bg-red-500/10 border border-red-500/20 rounded-xl text-red-500 text-[10px] font-black uppercase tracking-wider justify-center">
+                  <span className="material-icons-round text-sm">error_outline</span>
+                  <span>Assigna tots els jugadors sense repetir-ne cap</span>
+                </div>
+              )}
+            </section>
+          )}
         </div>
       </main>
 
@@ -325,9 +436,13 @@ const NewMatch: React.FC<NewMatchProps> = ({ players, onBack, onStart }) => {
 
       <footer className="fixed bottom-0 left-0 right-0 p-6 bg-background-dark/95 ios-blur border-t border-primary/5 z-50">
         <div className="max-w-md mx-auto">
-          <button onClick={generateTeams} disabled={selectedPlayers.length === 0} className="w-full bg-primary text-background-dark font-black py-4 rounded-xl shadow-lg shadow-primary/20 flex items-center justify-center gap-2 active:scale-[0.97] transition-all disabled:opacity-50 disabled:grayscale">
-            <span>{mode === 'Equips' ? 'Sortejar Parelles' : 'Començar Partit'}</span>
-            <span className="material-icons-round">{mode === 'Equips' ? 'shuffle' : 'play_arrow'}</span>
+          <button
+            onClick={generateTeams}
+            disabled={selectedPlayers.length === 0 || (mode === 'Equips' && teamSelectionMode === 'MANUAL' && !isManualTeamsValid)}
+            className="w-full bg-primary text-background-dark font-black py-4 rounded-xl shadow-lg shadow-primary/20 flex items-center justify-center gap-2 active:scale-[0.97] transition-all disabled:opacity-50 disabled:grayscale"
+          >
+            <span>{(mode === 'Equips' && teamSelectionMode === 'RANDOM') ? 'Sortejar Parelles' : 'Començar Partit'}</span>
+            <span className="material-icons-round">{(mode === 'Equips' && teamSelectionMode === 'RANDOM') ? 'shuffle' : 'play_arrow'}</span>
           </button>
         </div>
       </footer>
