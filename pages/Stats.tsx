@@ -23,62 +23,75 @@ interface PlayerStats {
 
 const Stats: React.FC<StatsProps> = ({ players, matches }) => {
   const calculateStats = (): PlayerStats[] => {
-    return players.map(player => {
-      // Filtrar tots els partits tancats del jugador
-      const closedMatches = matches.filter(m =>
-        m.status === MatchStatus.CLOSED &&
-        m.players.includes(player.name)
-      );
+    // 1. Inicialitzar resum
+    const summary: Record<string, {
+      pts: number,
+      pjLliga: number,
+      pjTotal: number,
+      birdies: number,
+      hio: number,
+      strokesInd: number,
+      countInd: number,
+      strokesPar: number,
+      countPar: number,
+      parInd: number,
+      parPar: number
+    }> = {};
 
-      // Els punts NOMÉS compten per partits de Lliga
-      const lligaMatches = closedMatches.filter(m => m.type === 'Lliga');
+    players.forEach(p => {
+      summary[p.name] = {
+        pts: 0, pjLliga: 0, pjTotal: 0, birdies: 0, hio: 0,
+        strokesInd: 0, countInd: 0, strokesPar: 0, countPar: 0,
+        parInd: 0, parPar: 0
+      };
+    });
 
-      if (process.env.NODE_ENV === 'development') {
-        lligaMatches.forEach(m => {
-          console.log(`[STATS] Llegint Partit: ${m.id} | Mode: ${m.mode} | Equips: ${m.teams?.length || 0} | PointsMap:`, m.points_per_player);
-          if (!m.points_per_player || !(player.name in m.points_per_player)) {
-            console.error(`[STATS] Alerta: El partit ${m.id} no conté punts per ${player.name}`);
+    // 2. Passada única pels matches
+    matches.filter(m => m.status === MatchStatus.CLOSED).forEach(m => {
+      m.players.forEach(playerName => {
+        const stats = summary[playerName];
+        if (!stats) return;
+
+        stats.pjTotal++;
+
+        if (m.type === 'Lliga') {
+          stats.pjLliga++;
+          stats.pts += (m.points_per_player?.[playerName] ?? 0);
+          stats.birdies += (m.birdies_per_player?.[playerName] ?? 0);
+          stats.hio += (m.hio_per_player?.[playerName] ?? 0);
+
+          const s = m.strokes_total_per_player?.[playerName] ?? 0;
+          if (m.mode === GameMode.INDIVIDUAL) {
+            stats.strokesInd += s;
+            stats.parInd += m.par;
+            stats.countInd++;
+          } else {
+            stats.strokesPar += s;
+            stats.parPar += m.par;
+            stats.countPar++;
           }
-        });
-      }
+        }
+      });
+    });
 
-      const totalPoints = lligaMatches.reduce((acc, m) => acc + getPlayerPointsFromMatch(m, player.name), 0);
-
-      const totalBirdies = lligaMatches.reduce((acc, m) => acc + (m.birdies_per_player?.[player.name] || 0), 0);
-      const totalHIO = lligaMatches.reduce((acc, m) => acc + (m.hio_per_player?.[player.name] || 0), 0);
-
-      const individualMatches = lligaMatches.filter(m => m.mode === GameMode.INDIVIDUAL);
-      const parellaMatches = lligaMatches.filter(m => m.mode === GameMode.PARELLA);
-
-      const avgIndividual = individualMatches.length > 0
-        ? individualMatches.reduce((acc, m) => acc + (m.strokes_total_per_player[player.name] || 0), 0) / individualMatches.length
-        : null;
-
-      const avgParella = parellaMatches.length > 0
-        ? parellaMatches.reduce((acc, m) => acc + (m.strokes_total_per_player[player.name] || 0), 0) / parellaMatches.length
-        : null;
-
-      // Utilitzem el PAR configurat per cada partit per una mitjana més real
-      const sumParDiffInd = individualMatches.reduce((acc, m) => acc + ((m.strokes_total_per_player[player.name] || 0) - m.par), 0);
-      const sobreParInd = individualMatches.length > 0 ? sumParDiffInd / individualMatches.length : null;
-
-      const sumParDiffPar = parellaMatches.reduce((acc, m) => acc + ((m.strokes_total_per_player[player.name] || 0) - m.par), 0);
-      const sobreParPar = parellaMatches.length > 0 ? sumParDiffPar / parellaMatches.length : null;
-
+    // 3. Mapeig final
+    return players.map(player => {
+      const s = summary[player.name];
       return {
         jugador: player.name,
-        punts: totalPoints,
-        partits_lliga: lligaMatches.length,
-        partits_totals: closedMatches.length,
-        mitjana_cops_individual: avgIndividual,
-        mitjana_cops_parella: avgParella,
-        sobre_par_ind: sobreParInd,
-        sobre_par_par: sobreParPar,
-        birdies_total: totalBirdies,
-        hio_total: totalHIO
+        punts: s.pts,
+        partits_lliga: s.pjLliga,
+        partits_totals: s.pjTotal,
+        mitjana_cops_individual: s.countInd > 0 ? s.strokesInd / s.countInd : null,
+        mitjana_cops_parella: s.countPar > 0 ? s.strokesPar / s.countPar : null,
+        sobre_par_ind: s.countInd > 0 ? (s.strokesInd - s.parInd) / s.countInd : null,
+        sobre_par_par: s.countPar > 0 ? (s.strokesPar - s.parPar) / s.countPar : null,
+        birdies_total: s.birdies,
+        hio_total: s.hio
       };
     }).sort((a, b) => b.punts - a.punts);
   };
+
 
   const statsData = calculateStats();
 

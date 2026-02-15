@@ -13,34 +13,65 @@ interface RankingProps {
 const Ranking: React.FC<RankingProps> = ({ players, matches, onNewMatch, onSelectPlayer }) => {
   // Calculem les estadístiques dinàmicament només de partits de LLIGA tancats
   const playersWithDynamicStats = useMemo(() => {
-    return players.map(player => {
-      const lligaMatches = matches.filter(m =>
-        m.status === MatchStatus.CLOSED &&
-        m.type === 'Lliga' &&
-        m.players.includes(player.name)
-      );
-      if (process.env.NODE_ENV === 'development') {
-        lligaMatches.forEach(m => {
-          console.log(`[RANKING] Llegint Partit: ${m.id} | Mode: ${m.mode} | Equips: ${m.teams?.length || 0} | PointsMap:`, m.points_per_player);
-          if (!m.points_per_player || !(player.name in m.points_per_player)) {
-            console.error(`[RANKING] Alerta: El partit ${m.id} no conté punts per ${player.name}`);
-          }
-        });
-      }
+    const totals: Record<string, number> = {};
+    const games: Record<string, number> = {};
+    const strokes: Record<string, number> = {};
+    const pars: Record<string, number> = {};
 
-      const totalPoints = lligaMatches.reduce((acc, m) => acc + getPlayerPointsFromMatch(m, player.name), 0);
-      const totalStrokes = lligaMatches.reduce((acc, m) => acc + (m.strokes_total_per_player[player.name] || 0), 0);
-      const totalPar = lligaMatches.reduce((acc, m) => acc + m.par, 0);
-      const diffPar = lligaMatches.length > 0 ? (totalStrokes - totalPar) / lligaMatches.length : null;
+    const lligaMatches = matches.filter(m => m.status === MatchStatus.CLOSED && m.type === 'Lliga');
+
+    for (const match of lligaMatches) {
+      for (const playerName of match.players) {
+        const p = match.points_per_player?.[playerName];
+        const s = match.strokes_total_per_player?.[playerName] ?? 0;
+
+        if (p === undefined && process.env.NODE_ENV === 'development') {
+          console.warn(`[RANKING] Punts no trobats per ${playerName} al match ${match.id}`);
+        }
+
+        totals[playerName] = (totals[playerName] ?? 0) + (p ?? 0);
+        games[playerName] = (games[playerName] ?? 0) + 1;
+        strokes[playerName] = (strokes[playerName] ?? 0) + s;
+        pars[playerName] = (pars[playerName] ?? 0) + match.par;
+      }
+    }
+
+    return players.map(player => {
+      const gCount = games[player.name] ?? 0;
+      const sSum = strokes[player.name] ?? 0;
+      const pSum = pars[player.name] ?? 0;
 
       return {
         ...player,
-        points: totalPoints,
-        matchesPlayed: lligaMatches.length,
-        sobrePar: diffPar
+        points: totals[player.name] ?? 0,
+        matchesPlayed: gCount,
+        sobrePar: gCount > 0 ? (sSum - pSum) / gCount : null
       };
     }).sort((a, b) => (b.points || 0) - (a.points || 0));
   }, [players, matches]);
+
+  // SINGLE MATCH AUDIT (DEBUG)
+  React.useEffect(() => {
+    if (process.env.NODE_ENV === 'development' && matches.length > 0) {
+      const closedLliga = matches.filter(m => m.status === MatchStatus.CLOSED && m.type === 'Lliga');
+      if (closedLliga.length === 0) return;
+
+      const last = [...closedLliga].sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())[0];
+      console.log("%c=== SINGLE MATCH AUDIT (DEBUG) ===", "color: #13ec5b; font-weight: bold");
+      console.log(`ID: ${last.id} | Mode: ${last.mode} | Data: ${last.date}`);
+      console.log("Players in match:", last.players);
+      console.log("Points per player (Stored):", last.points_per_player);
+
+      const currentRankingPoints = playersWithDynamicStats.reduce((acc, p) => {
+        if (last.players.includes(p.name)) acc[p.name] = p.points;
+        return acc;
+      }, {} as any);
+
+      console.log("Current totals for these players in ranking:", currentRankingPoints);
+      console.log("==================================");
+    }
+  }, [matches, playersWithDynamicStats]);
+
 
   const topThree = playersWithDynamicStats.slice(0, 3);
   const others = playersWithDynamicStats.slice(3);
