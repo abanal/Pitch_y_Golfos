@@ -144,9 +144,13 @@ export const calculateMatchPoints = (match: Partial<Match>): Record<string, numb
 
     if (mode === GameMode.INDIVIDUAL) {
         const N = players.length;
-        const ranks = computeDenseRankPositions(strokes);
+        const ranks = computeCompetitionRank(
+            players,
+            (name) => strokes[name] || 0,
+            (name) => name
+        );
 
-        console.log(`--- CALCANT PUNTS INDIVIDUAL (N=${N}) ---`);
+        console.log(`--- CALCANT PUNTS INDIVIDUAL (COMPETITION RANK N=${N}) ---`);
         players.forEach(name => {
             const position = ranks[name] || 1;
             const basePoints = (N - position + 1) * 5;
@@ -165,15 +169,20 @@ export const calculateMatchPoints = (match: Partial<Match>): Record<string, numb
             teamStrokes[idx.toString()] = total;
         });
 
-        // 2. Ranking NOMÉS per cops (Dense Rank)
-        const teamRanks = computeDenseRankPositions(teamStrokes);
+        // 2. Ranking per Competition Rank (1, 1, 3...)
+        const rankIds = Object.keys(teamStrokes);
+        const teamRanks = computeCompetitionRank(
+            rankIds,
+            (id) => teamStrokes[id],
+            (id) => id
+        );
 
-        console.log(`--- CALCANT PUNTS PARELLES (N=${N}) ---`);
+        console.log(`--- CALCANT PUNTS PARELLES (COMPETITION RANK N=${N}) ---`);
         teams.forEach((members, idx) => {
             const position = teamRanks[idx.toString()];
             const basePointsTeam = (N - position + 1) * 5;
 
-            console.log(`[TEAM ${idx + 1}] Score=${teamStrokes[idx]}, Pos=${position}, BaseTeam=${basePointsTeam}`);
+            console.log(`[TEAM ${idx + 1}] Score=${teamStrokes[idx]}, CompetitionPos=${position}, BaseTeam=${basePointsTeam}`);
 
             members.forEach(name => {
                 const bonus = (birdies[name] || 0) * 1 + (hio[name] || 0) * 10;
@@ -186,9 +195,38 @@ export const calculateMatchPoints = (match: Partial<Match>): Record<string, numb
     return pointsMap;
 };
 
-// Mantenim per compatibilitat amb versions simples si cal
-export const computeDenseRankPositions = (scoresByKey: Record<string, number>): Record<string, number> => {
-    const keys = Object.keys(scoresByKey);
-    return computeDenseRank(keys, (a, b) => (scoresByKey[a] || 0) - (scoresByKey[b] || 0), k => k);
+/**
+ * FUNCIO PER CALCULAR COMPETITION RANK (1, 1, 3, 4...)
+ * S'ordena per score ASC i es salten posicions en cas d'empat.
+ */
+export const computeCompetitionRank = <T>(
+    items: T[],
+    scoreFn: (item: T) => number,
+    idFn: (item: T) => string
+): Record<string, number> => {
+    if (items.length === 0) return {};
+    const sorted = [...items].sort((a, b) => scoreFn(a) - scoreFn(b));
+    const ranks: Record<string, number> = {};
+    let lastScore: number | null = null;
+    let rankToAssign = 1;
+
+    sorted.forEach((item, idx) => {
+        const currentScore = scoreFn(item);
+        if (lastScore !== null && currentScore !== lastScore) {
+            rankToAssign = idx + 1;
+        }
+        ranks[idFn(item)] = rankToAssign;
+        lastScore = currentScore;
+    });
+    return ranks;
 };
 
+/**
+ * Mantenim computeDenseRank per si cal en algun altre lloc, 
+ * però redirigim computeDenseRankPositions a CompetitionRank segons la nova política.
+ */
+// Aliases per compatibilitat
+export const computeDenseRankPositions = (scoresByKey: Record<string, number>): Record<string, number> => {
+    const keys = Object.keys(scoresByKey);
+    return computeCompetitionRank(keys, k => scoresByKey[k] || 0, k => k);
+};
