@@ -1,7 +1,7 @@
 
 import React, { useState, useMemo } from 'react';
 import { Player, Match, MatchStatus, GameMode } from '../types';
-import { calculateMatchPoints, computeDenseRankPositions } from '../src/lib/statsHelper';
+import { calculateMatchPoints, computeDenseRankPositions, computeDenseRank } from '../src/lib/statsHelper';
 
 interface ScoreEntryProps {
   players: Player[];
@@ -77,16 +77,9 @@ const ScoreEntry: React.FC<ScoreEntryProps> = ({
   };
 
   const rankings = useMemo(() => {
-    const sorted = [...playerScores].sort((a, b) => a.strokes - b.strokes);
-    const ranks: Record<string, number> = {};
-    let currentRank = 1;
-    sorted.forEach((ps, idx) => {
-      if (idx > 0 && ps.strokes > sorted[idx - 1].strokes) {
-        currentRank = idx + 1;
-      }
-      ranks[ps.id] = currentRank;
-    });
-    return ranks;
+    const scoresMap: Record<string, number> = {};
+    playerScores.forEach(ps => scoresMap[ps.id] = ps.strokes);
+    return computeDenseRankPositions(scoresMap);
   }, [playerScores]);
 
   const handleFinishMatch = () => {
@@ -120,17 +113,29 @@ const ScoreEntry: React.FC<ScoreEntryProps> = ({
     // 4. Calculate points using the new helper
     const pointsMap = calculateMatchPoints(matchData);
 
-    // 5. Determine winner (Dense Rank 1)
+    // 5. Determine winner (Rank 1)
     let winner = "N/A";
     if (matchMode === 'Equips' && resolvedTeams.length > 0) {
-      const teamStrokes: Record<string, number> = {};
-      resolvedTeams.forEach((members, idx) => {
-        teamStrokes[idx] = members.reduce((acc, name) => acc + (strokesMap[name] || 0), 0);
+      const teamData = resolvedTeams.map((members, idx) => {
+        const tStrokes = members.reduce((acc, n) => acc + (strokesMap[n] || 0), 0);
+        const tBirdies = members.reduce((acc, n) => acc + (birdiesMap[n] || 0), 0);
+        const tHio = members.reduce((acc, n) => acc + (hioMap[n] || 0), 0);
+        return { id: idx.toString(), members, tStrokes, tBirdies, tHio };
       });
-      const teamRanks = computeDenseRankPositions(teamStrokes);
-      const winningTeamIdx = Object.keys(teamRanks).find(idx => teamRanks[idx] === 1);
-      if (winningTeamIdx !== undefined) {
-        winner = resolvedTeams[parseInt(winningTeamIdx)].join(' & ');
+
+      const teamRanks = computeDenseRank(
+        teamData,
+        (a: any, b: any) => {
+          if (a.tStrokes !== b.tStrokes) return a.tStrokes - b.tStrokes;
+          if (a.tBirdies !== b.tBirdies) return b.tBirdies - a.tBirdies;
+          return b.tHio - a.tHio;
+        },
+        (t: any) => t.id
+      );
+
+      const winningTeamId = Object.keys(teamRanks).find(id => teamRanks[id] === 1);
+      if (winningTeamId !== undefined) {
+        winner = resolvedTeams[parseInt(winningTeamId)].join(' & ');
       }
     } else {
       const rankPositions = computeDenseRankPositions(strokesMap);
