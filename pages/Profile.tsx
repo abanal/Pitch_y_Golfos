@@ -170,7 +170,12 @@ const Profile: React.FC<ProfileProps> = ({ player, matches, onBack }) => {
               <BarChart data={comparisonData} layout="vertical">
                 <XAxis type="number" hide />
                 <YAxis dataKey="name" type="category" width={80} tick={{ fontSize: 10, fill: '#94a3b8', fontWeight: 'bold' }} axisLine={false} tickLine={false} />
-                <Tooltip cursor={{ fill: 'transparent' }} contentStyle={{ backgroundColor: '#1e293b', border: 'none', borderRadius: '8px', fontSize: '10px', color: '#fff' }} />
+                <Tooltip
+                  cursor={{ fill: 'transparent' }}
+                  contentStyle={{ backgroundColor: '#1f2937', border: 'none', borderRadius: '8px', fontSize: '10px' }}
+                  labelStyle={{ color: '#FFFFFF' }}
+                  itemStyle={{ color: '#FFFFFF' }}
+                />
                 <Bar dataKey="value" radius={[0, 4, 4, 0]} barSize={20}>
                   <Cell fill="#3b82f6" />
                   <Cell fill="#f97316" />
