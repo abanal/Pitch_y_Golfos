@@ -1,6 +1,7 @@
 
 import React, { useMemo } from 'react';
 import { Player, Match, MatchStatus } from '../types';
+import { getPlayerPointsFromMatch } from '../src/lib/statsHelper';
 
 interface RankingProps {
   players: Player[];
@@ -13,17 +14,25 @@ const Ranking: React.FC<RankingProps> = ({ players, matches, onNewMatch, onSelec
   // Calculem les estadístiques dinàmicament només de partits de LLIGA tancats
   const playersWithDynamicStats = useMemo(() => {
     return players.map(player => {
-      const lligaMatches = matches.filter(m => 
-        m.status === MatchStatus.CLOSED && 
-        m.type === 'Lliga' && 
+      const lligaMatches = matches.filter(m =>
+        m.status === MatchStatus.CLOSED &&
+        m.type === 'Lliga' &&
         m.players.includes(player.name)
       );
-      
-      const totalPoints = lligaMatches.reduce((acc, m) => acc + (m.points_per_player[player.name] || 0), 0);
+      if (process.env.NODE_ENV === 'development') {
+        lligaMatches.forEach(m => {
+          console.log(`[RANKING] Llegint Partit: ${m.id} | Mode: ${m.mode} | Equips: ${m.teams?.length || 0} | PointsMap:`, m.points_per_player);
+          if (!m.points_per_player || !(player.name in m.points_per_player)) {
+            console.error(`[RANKING] Alerta: El partit ${m.id} no conté punts per ${player.name}`);
+          }
+        });
+      }
+
+      const totalPoints = lligaMatches.reduce((acc, m) => acc + getPlayerPointsFromMatch(m, player.name), 0);
       const totalStrokes = lligaMatches.reduce((acc, m) => acc + (m.strokes_total_per_player[player.name] || 0), 0);
       const totalPar = lligaMatches.reduce((acc, m) => acc + m.par, 0);
       const diffPar = lligaMatches.length > 0 ? (totalStrokes - totalPar) / lligaMatches.length : null;
-      
+
       return {
         ...player,
         points: totalPoints,
@@ -167,11 +176,11 @@ const Ranking: React.FC<RankingProps> = ({ players, matches, onNewMatch, onSelec
             <div className="col-span-2 text-center">Partits</div>
             <div className="col-span-2 text-right">+/- Par</div>
           </div>
-          
+
           {others.length > 0 ? (
             others.map((player, idx) => (
-              <div 
-                key={player.id} 
+              <div
+                key={player.id}
                 onClick={() => onSelectPlayer(player.id)}
                 className="grid grid-cols-12 items-center px-4 py-4 bg-white dark:bg-white/5 rounded-xl border border-slate-200 dark:border-white/5 cursor-pointer active:scale-[0.98] transition-all"
               >
@@ -196,7 +205,7 @@ const Ranking: React.FC<RankingProps> = ({ players, matches, onNewMatch, onSelec
       </section>
 
       <div className="fixed bottom-24 right-6 z-50">
-        <button 
+        <button
           onClick={onNewMatch}
           className="bg-primary text-background-dark font-bold px-6 py-4 rounded-2xl shadow-[0_10px_30px_rgba(19,236,91,0.4)] flex items-center gap-2 active:scale-95 transition-transform"
         >

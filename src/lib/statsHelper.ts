@@ -1,5 +1,22 @@
 import { Match, MatchStatus, GameMode } from '../../types';
 
+/**
+ * Obté els punts d'un jugador per a un partit específic.
+ * Font única de veritat: match.points_per_player
+ */
+export const getPlayerPointsFromMatch = (match: Match, playerName: string): number => {
+    const points = match.points_per_player?.[playerName];
+
+    if (points === undefined) {
+        if (process.env.NODE_ENV === 'development') {
+            console.warn(`[STATS] Falten punts per al jugador "${playerName}" al partit ${match.id} (${match.date}).`);
+        }
+        return 0;
+    }
+
+    return points;
+};
+
 export const filterMatchesByType = (
     matches: Match[],
     player: string,
@@ -21,7 +38,7 @@ export const computeStats = (matches: Match[], player: string) => {
     const gamesPlayed = matches.length;
     // Points usually only match.type === 'Lliga', but if filtered by Amistós, points likely 0. 
     // We sum whatever points are there.
-    const totalPoints = matches.reduce((acc, m) => acc + (m.points_per_player[player] || 0), 0);
+    const totalPoints = matches.reduce((acc, m) => acc + getPlayerPointsFromMatch(m, player), 0);
 
     let bestOverPar = gamesPlayed > 0 ? Infinity : null;
     let totalOverPar = 0;
@@ -78,7 +95,7 @@ export const computeAccumulatedPoints = (matches: Match[], player: string) => {
 
     let accumulate = 0;
     return lligaMatches.map(m => {
-        accumulate += (m.points_per_player[player] || 0);
+        accumulate += getPlayerPointsFromMatch(m, player);
         return {
             date: m.date,
             points: accumulate

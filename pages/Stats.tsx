@@ -1,6 +1,7 @@
 
 import React from 'react';
 import { Match, Player, GameMode, MatchStatus } from '../types';
+import { getPlayerPointsFromMatch } from '../src/lib/statsHelper';
 
 interface StatsProps {
   players: Player[];
@@ -31,7 +32,17 @@ const Stats: React.FC<StatsProps> = ({ players, matches }) => {
 
       // Els punts NOMÉS compten per partits de Lliga
       const lligaMatches = closedMatches.filter(m => m.type === 'Lliga');
-      const totalPoints = lligaMatches.reduce((acc, m) => acc + (m.points_per_player[player.name] || 0), 0);
+
+      if (process.env.NODE_ENV === 'development') {
+        lligaMatches.forEach(m => {
+          console.log(`[STATS] Llegint Partit: ${m.id} | Mode: ${m.mode} | Equips: ${m.teams?.length || 0} | PointsMap:`, m.points_per_player);
+          if (!m.points_per_player || !(player.name in m.points_per_player)) {
+            console.error(`[STATS] Alerta: El partit ${m.id} no conté punts per ${player.name}`);
+          }
+        });
+      }
+
+      const totalPoints = lligaMatches.reduce((acc, m) => acc + getPlayerPointsFromMatch(m, player.name), 0);
 
       const totalBirdies = lligaMatches.reduce((acc, m) => acc + (m.birdies_per_player?.[player.name] || 0), 0);
       const totalHIO = lligaMatches.reduce((acc, m) => acc + (m.hio_per_player?.[player.name] || 0), 0);
