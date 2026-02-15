@@ -116,27 +116,13 @@ const ScoreEntry: React.FC<ScoreEntryProps> = ({
     // 5. Determine winner (Rank 1)
     let winner = "N/A";
     if (matchMode === 'Equips' && resolvedTeams.length > 0) {
-      const teamData = resolvedTeams.map((members, idx) => {
-        const tStrokes = members.reduce((acc, n) => acc + (strokesMap[n] || 0), 0);
-        const tBirdies = members.reduce((acc, n) => acc + (birdiesMap[n] || 0), 0);
-        const tHio = members.reduce((acc, n) => acc + (hioMap[n] || 0), 0);
-        return { id: idx.toString(), members, tStrokes, tBirdies, tHio };
+      const teamStrokes: Record<string, number> = {};
+      resolvedTeams.forEach((members, idx) => {
+        teamStrokes[idx] = members.reduce((acc, name) => acc + (strokesMap[name] || 0), 0);
       });
-
-      const teamRanks = computeDenseRank(
-        teamData,
-        (a: any, b: any) => {
-          if (a.tStrokes !== b.tStrokes) return a.tStrokes - b.tStrokes;
-          if (a.tBirdies !== b.tBirdies) return b.tBirdies - a.tBirdies;
-          return b.tHio - a.tHio;
-        },
-        (t: any) => t.id
-      );
-
-      const winningTeamId = Object.keys(teamRanks).find(id => teamRanks[id] === 1);
-      if (winningTeamId !== undefined) {
-        winner = resolvedTeams[parseInt(winningTeamId)].join(' & ');
-      }
+      const teamRanks = computeDenseRankPositions(teamStrokes);
+      const winningTeamIds = Object.keys(teamRanks).filter(id => teamRanks[id] === 1);
+      winner = winningTeamIds.map(id => resolvedTeams[parseInt(id)].join(' & ')).join(', ');
     } else {
       const rankPositions = computeDenseRankPositions(strokesMap);
       const winningPlayers = Object.keys(rankPositions).filter(name => rankPositions[name] === 1);

@@ -144,61 +144,41 @@ export const calculateMatchPoints = (match: Partial<Match>): Record<string, numb
 
     if (mode === GameMode.INDIVIDUAL) {
         const N = players.length;
-        const ranks = computeDenseRank(
-            players,
-            (a, b) => (strokes[a] || 0) - (strokes[b] || 0),
-            (name) => name
-        );
+        const ranks = computeDenseRankPositions(strokes);
 
-        console.log(`--- RANKING INDIVIDUAL (N=${N}) ---`);
-        console.table(players.map(name => ({
-            Jugador: name,
-            Strokes: strokes[name],
-            Pos: ranks[name],
-            Base: (N - ranks[name] + 1) * 5,
-            Bonus: (birdies[name] || 0) + (hio[name] || 0) * 10,
-            Total: (N - ranks[name] + 1) * 5 + (birdies[name] || 0) + (hio[name] || 0) * 10
-        })).sort((a, b) => a.Pos - b.Pos));
-
+        console.log(`--- CALCANT PUNTS INDIVIDUAL (N=${N}) ---`);
         players.forEach(name => {
-            const pos = ranks[name] || 1;
-            const basePoints = (N - pos + 1) * 5;
-            pointsMap[name] = basePoints + (birdies[name] || 0) + (hio[name] || 0) * 10;
+            const position = ranks[name] || 1;
+            const basePoints = (N - position + 1) * 5;
+            const bonus = (birdies[name] || 0) * 1 + (hio[name] || 0) * 10;
+            pointsMap[name] = basePoints + bonus;
+            console.log(`[IND] ${name}: Strokes=${strokes[name]}, Pos=${position}, Base=${basePoints}, Bonus=${bonus}, Total=${pointsMap[name]}`);
         });
     } else {
+        // Mode PARELLES (Equips)
         const N = teams.length;
-        const teamData = teams.map((members, idx) => {
-            const tStrokes = members.reduce((acc, n) => acc + (strokes[n] || 0), 0);
-            const tBirdies = members.reduce((acc, n) => acc + (birdies[n] || 0), 0);
-            const tHio = members.reduce((acc, n) => acc + (hio[n] || 0), 0);
-            return { id: idx.toString(), members, tStrokes, tBirdies, tHio };
+        const teamStrokes: Record<string, number> = {};
+
+        // 1. Calcular score d'equip (suma de strokes dels membres pel seu nom)
+        teams.forEach((members, idx) => {
+            const total = members.reduce((acc, name) => acc + (strokes[name] || 0), 0);
+            teamStrokes[idx.toString()] = total;
         });
 
-        const teamRanks = computeDenseRank(
-            teamData,
-            (a, b) => {
-                if (a.tStrokes !== b.tStrokes) return a.tStrokes - b.tStrokes;
-                if (a.tBirdies !== b.tBirdies) return b.tBirdies - a.tBirdies; // DESC
-                return b.tHio - a.tHio; // DESC
-            },
-            (t) => t.id
-        );
+        // 2. Ranking NOMÉS per cops (Dense Rank)
+        const teamRanks = computeDenseRankPositions(teamStrokes);
 
-        console.log(`--- RANKING EQUIPS (N=${N}) ---`);
-        console.table(teamData.map(t => ({
-            Equip: t.members.join(' & '),
-            Strokes: t.tStrokes,
-            Birdies: t.tBirdies,
-            HIO: t.tHio,
-            Pos: teamRanks[t.id],
-            Base: (N - teamRanks[t.id] + 1) * 5
-        })).sort((a, b) => a.Pos - b.Pos));
+        console.log(`--- CALCANT PUNTS PARELLES (N=${N}) ---`);
+        teams.forEach((members, idx) => {
+            const position = teamRanks[idx.toString()];
+            const basePointsTeam = (N - position + 1) * 5;
 
-        teamData.forEach(t => {
-            const pos = teamRanks[t.id] || 1;
-            const basePointsTeam = (N - pos + 1) * 5;
-            t.members.forEach(name => {
-                pointsMap[name] = basePointsTeam + (birdies[name] || 0) + (hio[name] || 0) * 10;
+            console.log(`[TEAM ${idx + 1}] Score=${teamStrokes[idx]}, Pos=${position}, BaseTeam=${basePointsTeam}`);
+
+            members.forEach(name => {
+                const bonus = (birdies[name] || 0) * 1 + (hio[name] || 0) * 10;
+                pointsMap[name] = basePointsTeam + bonus;
+                console.log(`  > Jugador: ${name}, Bonus=${bonus}, Total=${pointsMap[name]}`);
             });
         });
     }
@@ -211,5 +191,4 @@ export const computeDenseRankPositions = (scoresByKey: Record<string, number>): 
     const keys = Object.keys(scoresByKey);
     return computeDenseRank(keys, (a, b) => (scoresByKey[a] || 0) - (scoresByKey[b] || 0), k => k);
 };
-
 
