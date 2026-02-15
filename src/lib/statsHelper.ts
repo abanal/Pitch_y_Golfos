@@ -122,7 +122,30 @@ export const computeDenseRank = <T>(
 };
 
 /**
- * LOGICA DE PUNTS AMB DENSE RANK I BONUS
+ * FUNCIO GENÈRICA DE COMPETITION RANK (1, 1, 3, 4...)
+ * Els empats reben la mateixa posició, i es salten les següents.
+ */
+export const computeCompetitionRank = <T>(
+    items: T[],
+    compareFn: (a: T, b: T) => number,
+    idFn: (item: T) => string
+): Record<string, number> => {
+    if (items.length === 0) return {};
+    const sorted = [...items].sort(compareFn);
+    const ranks: Record<string, number> = {};
+    let lastRank = 1;
+
+    sorted.forEach((item, idx) => {
+        if (idx > 0 && compareFn(sorted[idx - 1], item) !== 0) {
+            lastRank = idx + 1;
+        }
+        ranks[idFn(item)] = lastRank;
+    });
+    return ranks;
+};
+
+/**
+ * LOGICA DE PUNTS AMB COMPETITION RANK I BONUS
  */
 export const calculateMatchPoints = (match: Partial<Match>): Record<string, number> => {
     const {
@@ -144,9 +167,13 @@ export const calculateMatchPoints = (match: Partial<Match>): Record<string, numb
 
     if (mode === GameMode.INDIVIDUAL) {
         const N = players.length;
-        const ranks = computeDenseRankPositions(strokes);
+        const ranks = computeCompetitionRank(
+            players,
+            (a, b) => (strokes[a] || 0) - (strokes[b] || 0),
+            (name) => name
+        );
 
-        console.log(`--- CALCANT PUNTS INDIVIDUAL (N=${N}) ---`);
+        console.log(`--- CALCANT PUNTS INDIVIDUAL (N=${N}, Competition Rank) ---`);
         players.forEach(name => {
             const position = ranks[name] || 1;
             const basePoints = (N - position + 1) * 5;
@@ -155,36 +182,38 @@ export const calculateMatchPoints = (match: Partial<Match>): Record<string, numb
             console.log(`[IND] ${name}: Strokes=${strokes[name]}, Pos=${position}, Base=${basePoints}, Bonus=${bonus}, Total=${pointsMap[name]}`);
         });
     } else {
-        // Mode PARELLES (Equips)
+        // Mode PARELLES / EQUIPS (Suporta mida variable)
         const N = teams.length;
-        const teamStrokes: Record<string, number> = {};
-
-        // 1. Calcular score d'equip (suma de strokes dels membres pel seu nom)
-        teams.forEach((members, idx) => {
-            const total = members.reduce((acc, name) => acc + (strokes[name] || 0), 0);
-            teamStrokes[idx.toString()] = total;
+        const teamStats = teams.map((members, idx) => {
+            const teamScore = members.reduce((acc, name) => acc + (strokes[name] || 0), 0);
+            return { id: idx.toString(), members, teamScore, size: members.length };
         });
 
-        // 2. Ranking NOMÉS per cops (Dense Rank)
-        const teamRanks = computeDenseRankPositions(teamStrokes);
+        // 2. Competition Ranking NOMÉS per teamScore
+        const teamRanks = computeCompetitionRank(
+            teamStats,
+            (a, b) => a.teamScore - b.teamScore,
+            (t) => t.id
+        );
 
-        console.log(`--- CALCANT PUNTS PARELLES (N=${N}) ---`);
-        teams.forEach((members, idx) => {
-            const position = teamRanks[idx.toString()];
+        console.log(`--- CALCANT PUNTS EQUIPS (N=${N}, Competition Rank) ---`);
+        teamStats.forEach(team => {
+            const position = teamRanks[team.id];
             const basePointsTeam = (N - position + 1) * 5;
 
-            console.log(`[TEAM ${idx + 1}] Score=${teamStrokes[idx]}, Pos=${position}, BaseTeam=${basePointsTeam}`);
+            console.log(`[EQUIP ${parseInt(team.id) + 1}] Membres: ${team.members.join(', ')} | Mida: ${team.size} | Cops: ${team.teamScore} | Pos: ${position} | Base: ${basePointsTeam}`);
 
-            members.forEach(name => {
+            team.members.forEach(name => {
                 const bonus = (birdies[name] || 0) * 1 + (hio[name] || 0) * 10;
                 pointsMap[name] = basePointsTeam + bonus;
-                console.log(`  > Jugador: ${name}, Bonus=${bonus}, Total=${pointsMap[name]}`);
+                console.log(`  > Jugador: ${name} | Base: ${basePointsTeam} | Bonus: ${bonus} | Total: ${pointsMap[name]}`);
             });
         });
     }
 
     return pointsMap;
 };
+
 
 // Mantenim per compatibilitat amb versions simples si cal
 export const computeDenseRankPositions = (scoresByKey: Record<string, number>): Record<string, number> => {

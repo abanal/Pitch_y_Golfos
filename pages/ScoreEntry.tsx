@@ -1,7 +1,7 @@
 
 import React, { useState, useMemo } from 'react';
 import { Player, Match, MatchStatus, GameMode } from '../types';
-import { calculateMatchPoints, computeDenseRankPositions, computeDenseRank } from '../src/lib/statsHelper';
+import { calculateMatchPoints, computeDenseRankPositions, computeCompetitionRank, computeDenseRank } from '../src/lib/statsHelper';
 
 interface ScoreEntryProps {
   players: Player[];
@@ -79,7 +79,7 @@ const ScoreEntry: React.FC<ScoreEntryProps> = ({
   const rankings = useMemo(() => {
     const scoresMap: Record<string, number> = {};
     playerScores.forEach(ps => scoresMap[ps.id] = ps.strokes);
-    return computeDenseRankPositions(scoresMap);
+    return computeCompetitionRank(Object.keys(scoresMap), (a, b) => scoresMap[a] - scoresMap[b], k => k);
   }, [playerScores]);
 
   const handleFinishMatch = () => {
@@ -114,17 +114,26 @@ const ScoreEntry: React.FC<ScoreEntryProps> = ({
     const pointsMap = calculateMatchPoints(matchData);
 
     // 5. Determine winner (Rank 1)
+    // 5. Determine winner (Rank 1)
     let winner = "N/A";
     if (matchMode === 'Equips' && resolvedTeams.length > 0) {
-      const teamStrokes: Record<string, number> = {};
+      const teamScores: Record<string, number> = {};
       resolvedTeams.forEach((members, idx) => {
-        teamStrokes[idx] = members.reduce((acc, name) => acc + (strokesMap[name] || 0), 0);
+        teamScores[idx] = members.reduce((acc, name) => acc + (strokesMap[name] || 0), 0);
       });
-      const teamRanks = computeDenseRankPositions(teamStrokes);
+      const teamRanks = computeCompetitionRank(
+        Object.keys(teamScores),
+        (a, b) => teamScores[a] - teamScores[b],
+        id => id
+      );
       const winningTeamIds = Object.keys(teamRanks).filter(id => teamRanks[id] === 1);
       winner = winningTeamIds.map(id => resolvedTeams[parseInt(id)].join(' & ')).join(', ');
     } else {
-      const rankPositions = computeDenseRankPositions(strokesMap);
+      const rankPositions = computeCompetitionRank(
+        Object.keys(strokesMap),
+        (a, b) => strokesMap[a] - strokesMap[b],
+        id => id
+      );
       const winningPlayers = Object.keys(rankPositions).filter(name => rankPositions[name] === 1);
       winner = winningPlayers.join(', ');
     }
