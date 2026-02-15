@@ -1,6 +1,7 @@
 
 import React, { useState, useMemo } from 'react';
 import { Player, Match, MatchStatus, GameMode } from '../types';
+import { calculateMatchPoints, computeDenseRankPositions } from '../src/lib/statsHelper';
 
 interface ScoreEntryProps {
   players: Player[];
@@ -90,94 +91,51 @@ const ScoreEntry: React.FC<ScoreEntryProps> = ({
 
   const handleFinishMatch = () => {
     const strokesMap: Record<string, number> = {};
-    const pointsMap: Record<string, number> = {};
     const birdiesMap: Record<string, number> = {};
     const hioMap: Record<string, number> = {};
 
-    // Fill basic maps first
+    // 1. Prepare data maps
     playerScores.forEach(ps => {
       strokesMap[ps.name] = ps.strokes;
       birdiesMap[ps.name] = ps.birdies;
       hioMap[ps.name] = ps.hio;
     });
 
-    if (matchType === 'Lliga') {
-      if (matchMode === 'Equips' && teams && teams.length > 0) {
-        // --- TEAM MODE CALCULATION ---
+    // 2. Resolve teams from IDs to Names for storage and calculation
+    const resolvedTeams = teams?.map(teamIds =>
+      teamIds.map(pid => players.find(p => p.id === pid)?.name || '')
+    ) || [];
 
-        // 1. Calculate team scores
-        const teamScores = teams.map((teamMembers, idx) => {
-          const teamStrokes = teamMembers.reduce((acc, playerId) => {
-            const ps = playerScores.find(p => p.id === playerId);
-            return acc + (ps ? ps.strokes : 0);
-          }, 0);
-          return { teamIndex: idx, members: teamMembers, strokes: teamStrokes };
-        });
+    // 3. Construct a partial match for calculation
+    const matchData: Partial<Match> = {
+      mode: matchMode === 'Individual' ? GameMode.INDIVIDUAL : GameMode.PARELLA,
+      type: matchType,
+      players: playerScores.map(ps => ps.name),
+      teams: resolvedTeams,
+      strokes_total_per_player: strokesMap,
+      birdies_per_player: birdiesMap,
+      hio_per_player: hioMap
+    };
 
-        // 2. Sort teams by strokes
-        teamScores.sort((a, b) => a.strokes - b.strokes);
+    // 4. Calculate points using the new helper
+    const pointsMap = calculateMatchPoints(matchData);
 
-        // 3. Assign ranks and points
-        const numTeams = teamScores.length;
-        let currentRank = 1;
-
-        teamScores.forEach((team, idx) => {
-          if (idx > 0 && team.strokes > teamScores[idx - 1].strokes) {
-            currentRank = idx + 1;
-          }
-
-          const baseTeamPoints = (numTeams - currentRank + 1) * 5;
-
-          // Assign to each member
-          team.members.forEach(memberId => {
-            const ps = playerScores.find(p => p.id === memberId);
-            if (ps) {
-              const totalPoints = baseTeamPoints + ps.birdies + (ps.hio * 10);
-              pointsMap[ps.name] = totalPoints;
-            }
-          });
-        });
-
-      } else {
-        // --- INDIVIDUAL MODE CALCULATION ---
-        const count = players.length;
-        playerScores.forEach(ps => {
-          const position = rankings[ps.id];
-          const basePoints = (count - position + 1) * 5;
-          const totalPoints = basePoints + ps.birdies + (ps.hio * 10);
-          pointsMap[ps.name] = totalPoints;
-        });
-      }
-    } else {
-      // Amistós -> 0 points
-      playerScores.forEach(ps => {
-        pointsMap[ps.name] = 0;
-      });
-    }
-
-    // Determine winner (Display purpose)
-    // For teams, maybe show the best team? For now keep simplest logic: best individual score or first rank
-    // Or if teams, find the team with rank 1
+    // 5. Determine winner (Dense Rank 1)
     let winner = "N/A";
-    if (matchMode === 'Equips' && teams) {
-      // Find team with lowest score manually again or reuse above?
-      // Let's reuse basic logic: find player with best score? No, team winner makes more sense for Equips
-      // But existing UI expects a "Winner" string. Let's put the names of the winning team members?
-      const teamScores = teams.map((teamMembers) => {
-        const teamStrokes = teamMembers.reduce((acc, playerId) => {
-          const ps = playerScores.find(p => p.id === playerId);
-          return acc + (ps ? ps.strokes : 0);
-        }, 0);
-        return { members: teamMembers, strokes: teamStrokes };
-      }).sort((a, b) => a.strokes - b.strokes);
-
-      if (teamScores.length > 0) {
-        const winningTeam = teamScores[0];
-        winner = winningTeam.members.map(pid => playerScores.find(p => p.id === pid)?.name).join(' & ');
+    if (matchMode === 'Equips' && resolvedTeams.length > 0) {
+      const teamStrokes: Record<string, number> = {};
+      resolvedTeams.forEach((members, idx) => {
+        teamStrokes[idx] = members.reduce((acc, name) => acc + (strokesMap[name] || 0), 0);
+      });
+      const teamRanks = computeDenseRankPositions(teamStrokes);
+      const winningTeamIdx = Object.keys(teamRanks).find(idx => teamRanks[idx] === 1);
+      if (winningTeamIdx !== undefined) {
+        winner = resolvedTeams[parseInt(winningTeamIdx)].join(' & ');
       }
     } else {
-      const winnerScore = playerScores.find(ps => rankings[ps.id] === 1);
-      winner = winnerScore ? winnerScore.name : "N/A";
+      const rankPositions = computeDenseRankPositions(strokesMap);
+      const winningPlayers = Object.keys(rankPositions).filter(name => rankPositions[name] === 1);
+      winner = winningPlayers.join(', ');
     }
 
     const newMatch: Match = {
@@ -185,22 +143,21 @@ const ScoreEntry: React.FC<ScoreEntryProps> = ({
       matchCode: `MATCH-${new Date().getFullYear()}-${Math.floor(Math.random() * 1000)}`,
       customName: customName,
       date: matchDate,
-      mode: matchMode === 'Individual' ? GameMode.INDIVIDUAL : GameMode.PARELLA,
+      mode: matchData.mode!,
       type: matchType,
-      playerCount: players.length, // Keep explicit player count
+      playerCount: players.length,
       status: MatchStatus.CLOSED,
       winner: winner,
       course: course.name,
       par: course.par,
-      players: playerScores.map(ps => ps.name),
-      teams: teams,
+      players: matchData.players!,
+      teams: resolvedTeams,
       strokes_total_per_player: strokesMap,
       points_per_player: pointsMap,
       birdies_per_player: birdiesMap,
       hio_per_player: hioMap
     };
 
-    console.log("Saving match with points (Teams logic applied if needed):", pointsMap);
     onFinish(newMatch);
   };
 
