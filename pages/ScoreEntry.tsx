@@ -52,6 +52,47 @@ const ScoreEntry: React.FC<ScoreEntryProps> = ({
     }))
   );
 
+  const [teamScores, setTeamScores] = useState<Record<string, { strokes: number; birdies: number; hio: number }>>(
+    () => {
+      const initial: Record<string, { strokes: number; birdies: number; hio: number }> = {};
+      if (matchMode === 'Equips' && teams) {
+        teams.forEach((members, idx) => {
+          const tId = idx.toString();
+          // Intentar recuperar de dades individuals si no n'hi ha d'equip (per compatibilitat en edició)
+          const totalStrokes = members.reduce((acc, name) => acc + (existingScores?.strokes?.[name] || 0), 0);
+          const totalBirdies = members.reduce((acc, name) => acc + (existingScores?.birdies?.[name] || 0), 0);
+          const totalHIO = members.reduce((acc, name) => acc + (existingScores?.hio?.[name] || 0), 0);
+
+          initial[tId] = {
+            strokes: totalStrokes || course.par,
+            birdies: totalBirdies || 0,
+            hio: totalHIO || 0
+          };
+        });
+      }
+      return initial;
+    }
+  );
+
+  const updateTeamStat = (teamIdx: string, key: 'strokes' | 'birdies' | 'hio', delta: number) => {
+    setTeamScores(prev => ({
+      ...prev,
+      [teamIdx]: {
+        ...prev[teamIdx],
+        [key]: Math.max(0, prev[teamIdx][key] + delta)
+      }
+    }));
+  };
+
+  const handleManualTeamStrokes = (teamIdx: string, value: string) => {
+    const num = parseInt(value) || 0;
+    setTeamScores(prev => ({
+      ...prev,
+      [teamIdx]: { ...prev[teamIdx], strokes: num }
+    }));
+  };
+
+
   const getInitials = (name: string) => {
     return name.split(' ').map(n => n[0]).join('').toUpperCase().slice(0, 2);
   };
@@ -77,10 +118,22 @@ const ScoreEntry: React.FC<ScoreEntryProps> = ({
   };
 
   const rankings = useMemo(() => {
-    const scoresMap: Record<string, number> = {};
-    playerScores.forEach(ps => scoresMap[ps.id] = ps.strokes);
-    return computeCompetitionRank(Object.keys(scoresMap), (a, b) => scoresMap[a] - scoresMap[b], k => k);
-  }, [playerScores]);
+    if (matchMode === 'Individual') {
+      const scoresMap: Record<string, number> = {};
+      playerScores.forEach(ps => scoresMap[ps.id] = ps.strokes);
+      return computeCompetitionRank(Object.keys(scoresMap), (a, b) => scoresMap[a] - scoresMap[b], k => k);
+    } else {
+      // Per equips, el rànquing visual depèn dels teamScores
+      const teamIdRanks = computeCompetitionRank(Object.keys(teamScores), (a, b) => teamScores[a].strokes - teamScores[b].strokes, k => k);
+      // Mapejar rànquing d'equip a jugadors
+      const playerRanks: Record<string, number> = {};
+      teams?.forEach((members, idx) => {
+        const rank = teamIdRanks[idx.toString()];
+        members.forEach(pid => playerRanks[pid] = rank);
+      });
+      return playerRanks;
+    }
+  }, [playerScores, teamScores, matchMode, teams]);
 
   const handleFinishMatch = () => {
     const strokesMap: Record<string, number> = {};
@@ -89,9 +142,20 @@ const ScoreEntry: React.FC<ScoreEntryProps> = ({
 
     // 1. Prepare data maps
     playerScores.forEach(ps => {
-      strokesMap[ps.name] = ps.strokes;
-      birdiesMap[ps.name] = ps.birdies;
-      hioMap[ps.name] = ps.hio;
+      if (matchMode === 'Equips') {
+        // En mode equips, busquem la stat de l'equip al qual pertany el jugador
+        const teamIdx = teams?.findIndex(t => t.includes(ps.id));
+        if (teamIdx !== undefined && teamIdx !== -1) {
+          const tScore = teamScores[teamIdx.toString()];
+          strokesMap[ps.name] = tScore.strokes;
+          birdiesMap[ps.name] = tScore.birdies;
+          hioMap[ps.name] = tScore.hio;
+        }
+      } else {
+        strokesMap[ps.name] = ps.strokes;
+        birdiesMap[ps.name] = ps.birdies;
+        hioMap[ps.name] = ps.hio;
+      }
     });
 
     // 2. Resolve teams from IDs to Names for storage and calculation
@@ -107,23 +171,19 @@ const ScoreEntry: React.FC<ScoreEntryProps> = ({
       teams: resolvedTeams,
       strokes_total_per_player: strokesMap,
       birdies_per_player: birdiesMap,
-      hio_per_player: hioMap
+      hio_per_player: hioMap,
+      team_stats: matchMode === 'Equips' ? teamScores : undefined
     };
 
     // 4. Calculate points using the new helper
     const pointsMap = calculateMatchPoints(matchData);
 
     // 5. Determine winner (Rank 1)
-    // 5. Determine winner (Rank 1)
     let winner = "N/A";
     if (matchMode === 'Equips' && resolvedTeams.length > 0) {
-      const teamScores: Record<string, number> = {};
-      resolvedTeams.forEach((members, idx) => {
-        teamScores[idx] = members.reduce((acc, name) => acc + (strokesMap[name] || 0), 0);
-      });
       const teamRanks = computeCompetitionRank(
         Object.keys(teamScores),
-        (a, b) => teamScores[a] - teamScores[b],
+        (a, b) => teamScores[a].strokes - teamScores[b].strokes,
         id => id
       );
       const winningTeamIds = Object.keys(teamRanks).filter(id => teamRanks[id] === 1);
@@ -155,7 +215,8 @@ const ScoreEntry: React.FC<ScoreEntryProps> = ({
       strokes_total_per_player: strokesMap,
       points_per_player: pointsMap,
       birdies_per_player: birdiesMap,
-      hio_per_player: hioMap
+      hio_per_player: hioMap,
+      team_stats: matchMode === 'Equips' ? teamScores : undefined
     };
 
     onFinish(newMatch);
@@ -201,83 +262,167 @@ const ScoreEntry: React.FC<ScoreEntryProps> = ({
           </div>
         )}
 
-        {playerScores.map((ps) => (
-          <div key={ps.id} className="bg-neutral-dark/40 border border-primary/10 rounded-[2.5rem] p-6 shadow-2xl relative overflow-hidden group">
-            <div className="absolute top-0 right-0 p-8 opacity-5 group-hover:opacity-10 transition-opacity">
-              <span className="material-icons-round text-8xl">sports_golf</span>
+        {matchMode === 'Individual' ? (
+          playerScores.map((ps) => (
+            <div key={ps.id} className="bg-neutral-dark/40 border border-primary/10 rounded-[2.5rem] p-6 shadow-2xl relative overflow-hidden group">
+              <div className="absolute top-0 right-0 p-8 opacity-5 group-hover:opacity-10 transition-opacity">
+                <span className="material-icons-round text-8xl">sports_golf</span>
+              </div>
+
+              <div className="flex items-center justify-between mb-8">
+                <div className="flex items-center gap-4">
+                  <div className="relative">
+                    <div className="w-16 h-16 rounded-2xl border-2 border-primary/30 flex items-center justify-center bg-background-dark text-primary font-black text-xl shadow-lg shadow-primary/10">
+                      {getInitials(ps.name)}
+                    </div>
+                    <div className={`absolute -top-2 -left-2 w-8 h-8 rounded-full flex items-center justify-center text-xs font-black border-2 border-background-dark shadow-md ${rankings[ps.id] === 1 ? 'bg-primary text-background-dark' : 'bg-slate-700 text-slate-300'}`}>
+                      #{rankings[ps.id]}
+                    </div>
+                  </div>
+                  <div>
+                    <h3 className="font-bold text-lg text-white leading-tight">{ps.name}</h3>
+                    <div className="flex items-center gap-1.5">
+                      <div className="w-1.5 h-1.5 rounded-full bg-primary"></div>
+                      <span className="text-[10px] text-primary uppercase font-black tracking-widest">En joc</span>
+                    </div>
+                  </div>
+                </div>
+                <div className="text-right">
+                  <div className={`px-3 py-1.5 rounded-xl text-xs font-black transition-all ${ps.strokes <= course.par ? 'bg-primary/20 text-primary border border-primary/30' : 'bg-red-500/10 text-red-500 border border-red-500/20'}`}>
+                    {ps.strokes - course.par === 0 ? 'E' : ps.strokes - course.par > 0 ? `+${ps.strokes - course.par}` : ps.strokes - course.par}
+                  </div>
+                </div>
+              </div>
+
+              <div className="space-y-6">
+                <div className="bg-background-dark/60 p-1.5 rounded-[2rem] border border-primary/5">
+                  <div className="flex items-center justify-between">
+                    <button onClick={() => updateScore(ps.id, 'strokes', -1)} className="w-16 h-16 rounded-[1.5rem] bg-slate-800/80 text-white flex items-center justify-center active:scale-90 transition-all shadow-lg active:bg-slate-700">
+                      <span className="material-icons-round text-2xl">remove</span>
+                    </button>
+                    <div className="flex-1 flex flex-col items-center">
+                      <input type="number" value={ps.strokes} onChange={(e) => handleManualStrokesChange(ps.id, e.target.value)} className="w-full bg-transparent border-none text-center text-5xl font-black py-2 text-primary focus:ring-0 appearance-none selection:bg-primary/30" />
+                      <span className="text-[9px] uppercase font-black text-slate-500 tracking-[0.3em] -mt-2">COPS TOTALS</span>
+                    </div>
+                    <button onClick={() => updateScore(ps.id, 'strokes', 1)} className="w-16 h-16 rounded-[1.5rem] bg-primary text-background-dark flex items-center justify-center active:scale-90 transition-all shadow-lg shadow-primary/20">
+                      <span className="material-icons-round text-2xl font-black">add</span>
+                    </button>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="bg-neutral-muted/20 p-3 rounded-2xl border border-white/5 flex flex-col items-center">
+                    <span className="text-[9px] text-slate-500 uppercase font-black mb-3 tracking-widest">Birdies</span>
+                    <div className="flex items-center justify-between w-full">
+                      <button onClick={() => updateScore(ps.id, 'birdies', -1)} className="w-8 h-8 rounded-lg bg-slate-800 text-white flex items-center justify-center active:scale-90 transition-all">
+                        <span className="material-icons-round text-xs">remove</span>
+                      </button>
+                      <span className="text-xl font-bold text-white">{ps.birdies}</span>
+                      <button onClick={() => updateScore(ps.id, 'birdies', 1)} className="w-8 h-8 rounded-lg bg-primary/20 text-primary flex items-center justify-center active:scale-90 transition-all">
+                        <span className="material-icons-round text-xs">add</span>
+                      </button>
+                    </div>
+                  </div>
+
+                  <div className="bg-primary/5 p-3 rounded-2xl border border-primary/10 flex flex-col items-center">
+                    <span className="text-[9px] text-primary/60 uppercase font-black mb-3 tracking-widest">Hole in one</span>
+                    <div className="flex items-center justify-between w-full">
+                      <button onClick={() => updateScore(ps.id, 'hio', -1)} className="w-8 h-8 rounded-lg bg-slate-800 text-white flex items-center justify-center active:scale-90 transition-all">
+                        <span className="material-icons-round text-xs">remove</span>
+                      </button>
+                      <span className="text-xl font-bold text-primary">{ps.hio}</span>
+                      <button onClick={() => updateScore(ps.id, 'hio', 1)} className="w-8 h-8 rounded-lg bg-primary text-background-dark flex items-center justify-center active:scale-90 transition-all shadow-sm">
+                        <span className="material-icons-round text-xs">add</span>
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              </div>
             </div>
+          ))
+        ) : (
+          Object.keys(teamScores).map((tId) => {
+            const teamMembers = teams?.[parseInt(tId)] || [];
+            const firstMemberId = teamMembers[0]; // Per treure el rànquing
+            const score = teamScores[tId];
+            const memberNames = teamMembers.map(pid => players.find(p => p.id === pid)?.name).join(' & ');
 
-            <div className="flex items-center justify-between mb-8">
-              <div className="flex items-center gap-4">
-                <div className="relative">
-                  <div className="w-16 h-16 rounded-2xl border-2 border-primary/30 flex items-center justify-center bg-background-dark text-primary font-black text-xl shadow-lg shadow-primary/10">
-                    {getInitials(ps.name)}
+            return (
+              <div key={tId} className="bg-neutral-dark/40 border border-primary/10 rounded-[2.5rem] p-6 shadow-2xl relative overflow-hidden group">
+                <div className="flex items-center justify-between mb-8">
+                  <div className="flex items-center gap-4">
+                    <div className="relative">
+                      <div className="w-16 h-16 rounded-2xl border-2 border-primary/30 flex items-center justify-center bg-background-dark text-primary font-black text-xs p-2 text-center shadow-lg shadow-primary/10">
+                        EQUIP {parseInt(tId) + 1}
+                      </div>
+                      <div className={`absolute -top-2 -left-2 w-8 h-8 rounded-full flex items-center justify-center text-xs font-black border-2 border-background-dark shadow-md ${rankings[firstMemberId] === 1 ? 'bg-primary text-background-dark' : 'bg-slate-700 text-slate-300'}`}>
+                        #{rankings[firstMemberId]}
+                      </div>
+                    </div>
+                    <div>
+                      <h3 className="font-bold text-sm text-white leading-tight">{memberNames}</h3>
+                      <div className="flex items-center gap-1.5">
+                        <div className="w-1.5 h-1.5 rounded-full bg-primary/40"></div>
+                        <span className="text-[9px] text-primary/60 uppercase font-black tracking-widest">{teamMembers.length} membres</span>
+                      </div>
+                    </div>
                   </div>
-                  <div className={`absolute -top-2 -left-2 w-8 h-8 rounded-full flex items-center justify-center text-xs font-black border-2 border-background-dark shadow-md ${rankings[ps.id] === 1 ? 'bg-primary text-background-dark' : 'bg-slate-700 text-slate-300'}`}>
-                    #{rankings[ps.id]}
-                  </div>
-                </div>
-                <div>
-                  <h3 className="font-bold text-lg text-white leading-tight">{ps.name}</h3>
-                  <div className="flex items-center gap-1.5">
-                    <div className="w-1.5 h-1.5 rounded-full bg-primary"></div>
-                    <span className="text-[10px] text-primary uppercase font-black tracking-widest">En joc</span>
-                  </div>
-                </div>
-              </div>
-              <div className="text-right">
-                <div className={`px-3 py-1.5 rounded-xl text-xs font-black transition-all ${ps.strokes <= course.par ? 'bg-primary/20 text-primary border border-primary/30' : 'bg-red-500/10 text-red-500 border border-red-500/20'}`}>
-                  {ps.strokes - course.par === 0 ? 'E' : ps.strokes - course.par > 0 ? `+${ps.strokes - course.par}` : ps.strokes - course.par}
-                </div>
-              </div>
-            </div>
-
-            <div className="space-y-6">
-              <div className="bg-background-dark/60 p-1.5 rounded-[2rem] border border-primary/5">
-                <div className="flex items-center justify-between">
-                  <button onClick={() => updateScore(ps.id, 'strokes', -1)} className="w-16 h-16 rounded-[1.5rem] bg-slate-800/80 text-white flex items-center justify-center active:scale-90 transition-all shadow-lg active:bg-slate-700">
-                    <span className="material-icons-round text-2xl">remove</span>
-                  </button>
-                  <div className="flex-1 flex flex-col items-center">
-                    <input type="number" value={ps.strokes} onChange={(e) => handleManualStrokesChange(ps.id, e.target.value)} className="w-full bg-transparent border-none text-center text-5xl font-black py-2 text-primary focus:ring-0 appearance-none selection:bg-primary/30" />
-                    <span className="text-[9px] uppercase font-black text-slate-500 tracking-[0.3em] -mt-2">COPS TOTALS</span>
-                  </div>
-                  <button onClick={() => updateScore(ps.id, 'strokes', 1)} className="w-16 h-16 rounded-[1.5rem] bg-primary text-background-dark flex items-center justify-center active:scale-90 transition-all shadow-lg shadow-primary/20">
-                    <span className="material-icons-round text-2xl font-black">add</span>
-                  </button>
-                </div>
-              </div>
-
-              <div className="grid grid-cols-2 gap-3">
-                <div className="bg-neutral-muted/20 p-3 rounded-2xl border border-white/5 flex flex-col items-center">
-                  <span className="text-[9px] text-slate-500 uppercase font-black mb-3 tracking-widest">Birdies</span>
-                  <div className="flex items-center justify-between w-full">
-                    <button onClick={() => updateScore(ps.id, 'birdies', -1)} className="w-8 h-8 rounded-lg bg-slate-800 text-white flex items-center justify-center active:scale-90 transition-all">
-                      <span className="material-icons-round text-xs">remove</span>
-                    </button>
-                    <span className="text-xl font-bold text-white">{ps.birdies}</span>
-                    <button onClick={() => updateScore(ps.id, 'birdies', 1)} className="w-8 h-8 rounded-lg bg-primary/20 text-primary flex items-center justify-center active:scale-90 transition-all">
-                      <span className="material-icons-round text-xs">add</span>
-                    </button>
+                  <div className="text-right">
+                    <div className={`px-3 py-1.5 rounded-xl text-xs font-black transition-all ${score.strokes <= course.par ? 'bg-primary/20 text-primary border border-primary/30' : 'bg-red-500/10 text-red-500 border border-red-500/20'}`}>
+                      {score.strokes - course.par === 0 ? 'E' : score.strokes - course.par > 0 ? `+${score.strokes - course.par}` : score.strokes - course.par}
+                    </div>
                   </div>
                 </div>
 
-                <div className="bg-primary/5 p-3 rounded-2xl border border-primary/10 flex flex-col items-center">
-                  <span className="text-[9px] text-primary/60 uppercase font-black mb-3 tracking-widest">Hole in one</span>
-                  <div className="flex items-center justify-between w-full">
-                    <button onClick={() => updateScore(ps.id, 'hio', -1)} className="w-8 h-8 rounded-lg bg-slate-800 text-white flex items-center justify-center active:scale-90 transition-all">
-                      <span className="material-icons-round text-xs">remove</span>
-                    </button>
-                    <span className="text-xl font-bold text-primary">{ps.hio}</span>
-                    <button onClick={() => updateScore(ps.id, 'hio', 1)} className="w-8 h-8 rounded-lg bg-primary text-background-dark flex items-center justify-center active:scale-90 transition-all shadow-sm">
-                      <span className="material-icons-round text-xs">add</span>
-                    </button>
+                <div className="space-y-6">
+                  <div className="bg-background-dark/60 p-1.5 rounded-[2rem] border border-primary/5">
+                    <div className="flex items-center justify-between">
+                      <button onClick={() => updateTeamStat(tId, 'strokes', -1)} className="w-16 h-16 rounded-[1.5rem] bg-slate-800/80 text-white flex items-center justify-center active:scale-90 transition-all shadow-lg active:bg-slate-700">
+                        <span className="material-icons-round text-2xl">remove</span>
+                      </button>
+                      <div className="flex-1 flex flex-col items-center">
+                        <input type="number" value={score.strokes} onChange={(e) => handleManualTeamStrokes(tId, e.target.value)} className="w-full bg-transparent border-none text-center text-5xl font-black py-2 text-primary focus:ring-0 appearance-none selection:bg-primary/30" />
+                        <span className="text-[9px] uppercase font-black text-slate-500 tracking-[0.3em] -mt-2">COPS EQUIP</span>
+                      </div>
+                      <button onClick={() => updateTeamStat(tId, 'strokes', 1)} className="w-16 h-16 rounded-[1.5rem] bg-primary text-background-dark flex items-center justify-center active:scale-90 transition-all shadow-lg shadow-primary/20">
+                        <span className="material-icons-round text-2xl font-black">add</span>
+                      </button>
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-3">
+                    <div className="bg-neutral-muted/20 p-3 rounded-2xl border border-white/5 flex flex-col items-center">
+                      <span className="text-[9px] text-slate-500 uppercase font-black mb-3 tracking-widest">Birdies Equip</span>
+                      <div className="flex items-center justify-between w-full">
+                        <button onClick={() => updateTeamStat(tId, 'birdies', -1)} className="w-8 h-8 rounded-lg bg-slate-800 text-white flex items-center justify-center active:scale-90 transition-all">
+                          <span className="material-icons-round text-xs">remove</span>
+                        </button>
+                        <span className="text-xl font-bold text-white">{score.birdies}</span>
+                        <button onClick={() => updateTeamStat(tId, 'birdies', 1)} className="w-8 h-8 rounded-lg bg-primary/20 text-primary flex items-center justify-center active:scale-90 transition-all">
+                          <span className="material-icons-round text-xs">add</span>
+                        </button>
+                      </div>
+                    </div>
+
+                    <div className="bg-primary/5 p-3 rounded-2xl border border-primary/10 flex flex-col items-center">
+                      <span className="text-[9px] text-primary/60 uppercase font-black mb-3 tracking-widest">HIO Equip</span>
+                      <div className="flex items-center justify-between w-full">
+                        <button onClick={() => updateTeamStat(tId, 'hio', -1)} className="w-8 h-8 rounded-lg bg-slate-800 text-white flex items-center justify-center active:scale-90 transition-all">
+                          <span className="material-icons-round text-xs">remove</span>
+                        </button>
+                        <span className="text-xl font-bold text-primary">{score.hio}</span>
+                        <button onClick={() => updateTeamStat(tId, 'hio', 1)} className="w-8 h-8 rounded-lg bg-primary text-background-dark flex items-center justify-center active:scale-90 transition-all shadow-sm">
+                          <span className="material-icons-round text-xs">add</span>
+                        </button>
+                      </div>
+                    </div>
                   </div>
                 </div>
               </div>
-            </div>
-          </div>
-        ))}
+            );
+          })
+        )}
+
       </main>
 
       <footer className="fixed bottom-0 inset-x-0 bg-background-dark/95 border-t border-primary/20 px-6 pt-6 pb-10 z-40 max-w-md mx-auto ios-blur">

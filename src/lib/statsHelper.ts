@@ -202,8 +202,15 @@ export const calculateMatchPoints = (match: Partial<Match>): Record<string, numb
         // Mode PARELLES / EQUIPS (Suporta mida variable)
         const N = teams.length;
         const teamStats = teams.map((members, idx) => {
-            const teamScore = members.reduce((acc, name) => acc + (strokes[name] || 0), 0);
-            return { id: idx.toString(), members, teamScore, size: members.length };
+            // Si tenim team_stats (nova versió), usem dades d'equip directament
+            const tId = idx.toString();
+            const storedStats = match.team_stats?.[tId];
+
+            const teamScore = storedStats
+                ? storedStats.strokes
+                : members.reduce((acc, name) => acc + (strokes[name] || 0), 0);
+
+            return { id: tId, members, teamScore, size: members.length, storedStats };
         });
 
         // 2. Competition Ranking NOMÉS per teamScore
@@ -218,15 +225,25 @@ export const calculateMatchPoints = (match: Partial<Match>): Record<string, numb
             const position = teamRanks[team.id];
             const basePointsTeam = (N - position + 1) * 5;
 
-            console.log(`[EQUIP ${parseInt(team.id) + 1}] Membres: ${team.members.join(', ')} | Mida: ${team.size} | Cops: ${team.teamScore} | Pos: ${position} | Base: ${basePointsTeam}`);
+            // Si hi ha stats d'equip, el bonus es calcula una vegada per l'equip
+            const teamBonus = team.storedStats
+                ? (team.storedStats.birdies * 1 + team.storedStats.hio * 10)
+                : 0;
+
+            console.log(`[EQUIP ${parseInt(team.id) + 1}] Membres: ${team.members.join(', ')} | Cops: ${team.teamScore} | Pos: ${position} | Base: ${basePointsTeam} | BonusT: ${teamBonus}`);
 
             team.members.forEach(name => {
-                const bonus = (birdies[name] || 0) * 1 + (hio[name] || 0) * 10;
-                pointsMap[name] = basePointsTeam + bonus;
-                console.log(`  > Jugador: ${name} | Base: ${basePointsTeam} | Bonus: ${bonus} | Total: ${pointsMap[name]}`);
+                // Si NO hi ha dades d'equip (partits antics), mantenim bonus individual
+                const individualBonus = !team.storedStats
+                    ? (birdies[name] || 0) * 1 + (hio[name] || 0) * 10
+                    : 0;
+
+                pointsMap[name] = basePointsTeam + teamBonus + individualBonus;
+                console.log(`  > Jugador: ${name} | Total: ${pointsMap[name]}`);
             });
         });
     }
+
 
     return pointsMap;
 };

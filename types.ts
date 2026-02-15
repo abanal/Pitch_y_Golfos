@@ -40,6 +40,7 @@ export interface Match {
   points_per_player: Record<string, number>;
   birdies_per_player: Record<string, number>;
   hio_per_player: Record<string, number>;
+  team_stats?: Record<string, { strokes: number; birdies: number; hio: number }>;
 }
 
 export type View = 'Ranking' | 'Historial' | 'Perfil' | 'Ajustes' | 'NuevoMatch' | 'ScoreEntry' | 'Jugadors' | 'Stats';
